@@ -1,0 +1,199 @@
+---
+title: "Machine Learning Project"
+author: "anaru b."
+date: "Saturday, October 24, 2015"
+output: html_document
+---
+##Apologies.
+As some of these models take hours to calculate we take a few shortcuts such as saving the models the first time they are calculated. It is my intention to upload the models to my git; the file name consists of the model name and the seed used to generate the model.
+
+#Executive Summary.
+This work applies machine learning to human activity recognition data (provided by http://groupware.les.inf.puc-rio.br/har) and attempts to predict whether 20 occurrences of an arm curl were performed correctly and if not identify the error. Our model appears very accurate for identifying an error in a single arm curl; this gives a high level of confidence that a systematic (common) flaw in an athlete's technique will be quickly identified giving the opportunity for rapid correction.
+
+#Setup.
+We check that the required data is present and load packages.
+
+##Retrieve Data.
+The following code sets a directory where the data is stored; if the data is not present then it will be downloaded. The data is then loaded into R.
+```{r}
+directory<-"Y:/DataScience/Machine Learning/"
+dir.train<-paste(directory,"pml-training.csv",sep="")
+dir.test<-paste(directory,"pml-testing.csv",sep="")
+
+if (!file.exists(dir.test)){
+        download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",
+                      dir.test)
+}
+if (!file.exists(dir.train)){
+        download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",
+                      dir.train)
+}
+
+if (!exists("training.initial")){
+        training.initial <- read.csv(dir.train, na.strings=c("#DIV/0!","NA",""))
+}
+
+if (!exists("testing.final")){
+        testing.final <- read.csv(dir.test, na.strings=c("#DIV/0!","NA",""))
+}
+```
+
+##Packages.
+This work requires a number of packages for the code to work correctly.
+
+```{r, message=FALSE,warning=FALSE}
+library(kernlab);library(caret); library(ISLR);library(ggplot2)
+library(Hmisc);library(MASS);library(klaR);library(rattle)
+```
+
+#EDA.
+Initially we found some columns had no variables, divide by zero errors and NA; we then adjusted the load statements to turn these variables into "NA".
+We identify our response variable which is stored in the classe column; the participants performed Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+Read more: http://groupware.les.inf.puc-rio.br/har#ixzz3pWKo6wCP.
+We also see that there are a lot of columns (~100 columns) filled with NA.
+```{r, eval=FALSE}
+#evaluation turned off to prevent spam
+summary(testing.final)
+summary(training.initial)
+```
+We tabulate the individual athletes and their performance and find a reasonable spread within our data.
+```{r}
+table(training.initial$classe,training.initial$user_name)
+```
+
+#Cleaning Data.
+We remove the columns with NA from our training set, and the column with the row numbers. To do this we look for columns with greater than 90 % NA and remove.
+
+```{r}
+training.mod <- training.initial
+set.seed(87654)
+for(i in 1:length(training.initial)) {
+        if( sum( is.na( training.initial[, i] ) ) /nrow(training.initial) >= .9) {
+                for(j in 1:length(training.mod)) {
+                        if( length( grep(names(training.initial[i]), names(training.mod)[j]) ) == 1)  {
+                                training.mod <- training.mod[ , -j]
+                        }   
+                } 
+        }
+}
+training.mod <- training.mod[-1]
+rm(training.initial)
+```
+
+#Creating a training and testing set of data for Cross Validation.
+We decide to split the data into two parts with 70 % for training and 30 % for testing; these numbers were based on the numbers used in the course notes. It was hoped to experiment with the split size but time constraints made this impossible. We will build our models on the training set and use the test set for cross validation.
+```{r}
+set.seed(87654)
+intrain<-createDataPartition(y=training.mod$classe,
+                             p=0.7, list=FALSE)
+training<-training.mod[intrain,]
+testing<-training.mod[-intrain,]
+dim(training);dim(testing)
+```
+
+#Creating the models.
+Our strategy is to trial a few different models and work out which one performs best. During this work it was found that some models took a very long time to calculate (multiple hours) and so our exploration was halted once we had a model with an accuracy greater than 99 %.
+
+## Decision Tree.
+By the confusion matrix we see accuracy is approximately 57 %. It is thought that we could make a significant improvement on this.
+```{r}
+#decission tree (rpart)
+seed<-76543
+dectree<-c(paste(directory,"modrp",seed,sep=""))
+if(!exists("modrp")){       
+        if (file.exists(dectree)){
+                load(dectree)
+                }
+        if (!file.exists(dectree)){   
+                set.seed(seed)
+                modrp<-train(classe~.,data=training,method="rpart")
+                save(modrp, file = dectree)
+                }                    
+        }
+prp<-predict(modrp,testing)
+confusionMatrix(prp,testing$classe)
+
+```
+A graph always make a work look more professional; here is one of our decision tree model (that does not perform).
+```{r,fig.width=10}
+fancyRpartPlot(modrp$finalModel)
+```
+
+##Linear discriminant analysis.
+The linear discriminant analysis performs better that the decision tree. We see that accuracy has improved to 86 %.
+```{r}
+#Linear discriminant analysis (lda)
+seed<-65432
+lindis<-c(paste(directory,"modla",seed,sep=""))
+if(!exists("modla")){       
+        if (file.exists(lindis)){
+                load(lindis)
+                }
+        if (!file.exists(lindis)){   
+                set.seed(seed)
+                modla=train(classe~.,data=training,method="lda")
+                save(modla, file = lindis)
+                }                    
+        }
+plda=predict(modla,testing)
+confusionMatrix(plda,testing$classe)
+```
+
+##Random Forest.
+We find that the random forest model performs very well with our cross valliadation, having an accuracy of 99.9 %.
+
+```{r}
+#Random Forest (rf)
+seed<-54321
+raifor<-c(paste(directory,"modrf",seed,sep=""))
+if(!exists("modrf")){       
+        if (file.exists(raifor)){
+                load(raifor)
+                }
+        if (!file.exists(raifor)){   
+                set.seed(seed)
+                modrf<-train(classe~.,data=training,method="rf")
+                save(modrf, file = raifor)
+                }                    
+        }
+prf=predict(modrf,testing)
+confusionMatrix(prf,testing$classe)
+```
+
+We can see that we get the best model from 41 predictors.
+```{r,fig.width=10}
+plot(modrf, log = "y", lwd = 3, col=2, main = "Accuracy of Random Forest", xlab = "Number of Predictors", 
+    ylab = "Accuracy")
+```
+
+#Out of sample error
+We estimate our out of sample error by subtracting our accuracy (of the model made from training data, when used on the test data) from 1; obviously the test dat was not used to create our model and is therefore "out of sample". For our three models:
+```{r}
+print("#decission tree (rpart)")
+1-modrp$results$Accuracy[1]
+print("#Linear discriminant analysis (lda)")
+1-modla$results$Accuracy[1]
+print("#Random Forest (rf)")
+1-modrf$results$Accuracy[1]
+```
+It can be seen that the random forest has the smallest out of sample error.
+
+##Final Predictions.
+We predict the values for our 20 arm curl observations.
+```{r}
+prf.final <- predict(modrf, testing.final)
+prf.final
+```
+
+##Evaluation on an individual athlete basis.
+We create a table for each athlete comparing the prediction (made from the training data model) with the rating in the testing. Each athlete seems to have reasonable agreement. It is expected that if an athlete has a deficiency in their technique it will be quickly identified. We expect that the worse a technical fault is, the higher the probability that it will be detected within a set of repetitions i.e. if we are 99 % accurate it is unlikely that we get 2 or 3 false alarms within a set of 12 arm curls. 
+```{r}
+audit<-cbind.data.frame(factor(testing$user_name),factor(testing$classe),factor(prf))
+colnames(audit)<-c("user","rating","prediction")
+print("Following tables show physical trainer ratings (columns) and prediction (rows) of individual athletes")
+table(audit$prediction,audit$rating,audit$user)
+```
+
+#Conclusions.
+Our final model (random forest) seems very accurate. When we study the tables of the individual athletes we can be seen that common faults are easily detected. This information can then be relayed to physical trainers (PTs) who have an opportunity to evaluate and correct poor technique; this will improve the quality of training and reduce risk of injury for the athlete.
